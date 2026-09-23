@@ -351,6 +351,9 @@ input::placeholder,textarea::placeholder{color:var(--mut4);opacity:1}
   body{background:#fff}
   .topbar,.rail,.side,.actions,.mbar,.pv-head{display:none!important}
   .doc{box-shadow:none;width:auto;padding:0}
+  .doc-sec{break-after:avoid;page-break-after:avoid}
+  .doc-block,.doc-list,.doc-stats,.doc-req,.doc-tot,.doc-cols,.gallery figure,.mgr{break-inside:avoid;page-break-inside:avoid}
+  .doc-list>div,.doc-stats>div,.doc-req>div,.spec-r,.cmp-r,.room-table tr,.term{break-inside:avoid;page-break-inside:avoid}
 }
 </style>
 
@@ -1322,12 +1325,16 @@ function pageFirst(rows,n,total,noItemsAtAll,included,requested){
     <div class="spec">${SPEC_HEAD}<div class="spec-r"><div class="spec-nm"><div><div class="n">Комплектация не выбрана</div></div></div><div></div><div></div><div></div></div></div>`
     :"";
   const includedSection=included&&included.length?
-    `<div class="doc-sec">Входит в комплектацию${pkg?" «"+esc(pkg.name)+"»":""}</div>
-    ${docListHtml(included)}`:"";
+    `<div class="doc-block">
+    <div class="doc-sec">Входит в комплектацию${pkg?" «"+esc(pkg.name)+"»":""}</div>
+    ${docListHtml(included)}
+    </div>`:"";
   const requestedSection=requested&&requested.length?
-    `<div class="doc-sec">Опции с индивидуальным расчётом</div>
+    `<div class="doc-block">
+    <div class="doc-sec">Опции с индивидуальным расчётом</div>
     <div class="doc-p" style="margin-bottom:2px;font-size:12px;color:var(--mut2)">Точная цена определяется под объект и не входит в сумму ниже.</div>
-    ${docListHtml(requested)}`:"";
+    ${docListHtml(requested)}
+    </div>`:"";
   return `<div class="doc">${docHead()}
     <div class="doc-req">
       <div><div class="l">Клиент</div><div class="v">${esc(client||"—")}</div></div>
