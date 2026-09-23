@@ -420,6 +420,7 @@ input::placeholder,textarea::placeholder{color:var(--mut4);opacity:1}
   </div>
 </div>
 
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 let __downloadsCap=null;
@@ -1467,21 +1468,93 @@ function standalone(extra){
 @media print{body{background:#fff;padding:0}.doc{box-shadow:none;margin:0;width:auto;min-height:0;padding:20px 24px 16px;page-break-after:always}.doc:last-child{page-break-after:auto}}
 ${extra||""}</style></head><body>`;
 }
-function exportPdf(){
-  const html=standalone("")+docHtml()+`</body></html>`;
-  let ifr=document.getElementById("__pdfFrame");
-  if(!ifr){
-    ifr=document.createElement("iframe");
-    ifr.id="__pdfFrame";
-    ifr.style.cssText="position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0";
-    document.body.appendChild(ifr);
+function pdfButtons(){
+  const list=[].slice.call(document.querySelectorAll('[id^="btnPdf"]'));
+  if(E("mbarPdf"))list.push(E("mbarPdf"));
+  return list;
+}
+async function exportPdf(){
+  const btns=pdfButtons();
+  const prev=btns.map(b=>b.textContent);
+  btns.forEach(b=>{b.disabled=true;b.textContent="Готовим PDF…"});
+  try{
+    const blob=await buildPdfBlob();
+    const ok=await __offerFile(`КП ${clientName()}.pdf`,blob);
+    if(!ok)alert("Скачивание не поддерживается в этом браузере.");
+  }catch(e){
+    alert("Не удалось собрать PDF. Попробуйте скачать Word и распечатать оттуда.");
+  }finally{
+    btns.forEach((b,i)=>{b.disabled=false;b.textContent=prev[i]});
   }
-  const doc=ifr.contentDocument||ifr.contentWindow.document;
-  doc.open();doc.write(html);doc.close();
-  setTimeout(()=>{
-    try{ifr.contentWindow.focus();ifr.contentWindow.print()}
-    catch(e){alert("Не удалось открыть печать. Попробуйте скачать Word и распечатать оттуда.")}
-  },350);
+}
+/* PDF собирается не через печать браузера (та зависела от CSS-пагинации и
+   давала расхождения с предпросмотром), а через рендер каждой страницы
+   .doc «как есть» (html2canvas) и склейку картинок в PDF (jsPDF) — так
+   итог всегда 1в1 совпадает с тем, что видно на экране.
+   Рендерим в отдельном скрытом iframe шириной 1000px (а не 794px, как было
+   раньше) — это важно: у .doc есть мобильная раскладка при ширине окна
+   меньше 899px (другие отступы, галерея и сравнение в один столбец), и
+   старый 794-пиксельный iframe для печати в неё случайно попадал, из-за
+   чего PDF мог отличаться от десктопного предпросмотра высотой контента
+   и, как следствие, пустыми местами/разрывами. 1000px гарантированно вне
+   этого брейкпоинта. */
+function buildPdfBlob(){
+  return new Promise((resolve,reject)=>{
+    const ES="</"+"script>";
+    const CAP_W=1000;
+    const old=document.getElementById("__pdfCap");
+    if(old)old.remove();
+    const ifr=document.createElement("iframe");
+    ifr.id="__pdfCap";
+    ifr.style.cssText=`position:fixed;left:-10000px;top:0;width:${CAP_W}px;height:600px;border:0`;
+    document.body.appendChild(ifr);
+    let done=false;
+    const to=setTimeout(()=>{
+      if(done)return;done=true;
+      ifr.remove();delete window.__pdfCapDone;
+      reject(new Error("timeout"));
+    },90000);
+    window.__pdfCapDone=(ok,payload)=>{
+      if(done)return;done=true;
+      clearTimeout(to);ifr.remove();delete window.__pdfCapDone;
+      if(ok)resolve(payload);else reject(new Error(String(payload||"pdf build failed")));
+    };
+    const html=`<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>${docCss()}</style>
+<style>body{background:#fff;margin:0}#pdfPages{width:${CAP_W}px;display:flex;flex-direction:column;align-items:center}#pdfPages .doc{box-shadow:none!important}</style>
+</head><body><div id="pdfPages">${docHtml()}</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js">${ES}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">${ES}
+<script>
+(async function(){
+  try{
+    if(document.fonts&&document.fonts.ready){try{await document.fonts.ready}catch(e){}}
+    await new Promise(r=>setTimeout(r,150));
+    const els=[].slice.call(document.querySelectorAll("#pdfPages .doc"));
+    if(!els.length)throw new Error("no pages");
+    const jsPDF=window.jspdf.jsPDF;
+    let pdf=null;
+    for(let i=0;i<els.length;i++){
+      const el=els[i];
+      const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:"#ffffff"});
+      const img=canvas.toDataURL("image/jpeg",0.92);
+      const wMm=210,hMm=wMm*canvas.height/canvas.width;
+      if(!pdf)pdf=new jsPDF({unit:"mm",format:[wMm,hMm],orientation:"portrait",compress:true});
+      else pdf.addPage([wMm,hMm],"portrait");
+      pdf.addImage(img,"JPEG",0,0,wMm,hMm,undefined,"FAST");
+    }
+    const blob=pdf.output("blob");
+    parent.__pdfCapDone(true,blob);
+  }catch(e){
+    parent.__pdfCapDone(false,(e&&e.message)||String(e));
+  }
+})();
+${ES}
+</body></html>`;
+    const doc=ifr.contentDocument||ifr.contentWindow.document;
+    doc.open();doc.write(html);doc.close();
+  });
 }
 async function exportWord(){
   const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
